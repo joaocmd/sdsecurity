@@ -2,14 +2,18 @@ package pt.tecnico.supplier;
 
 import static javax.xml.bind.DatatypeConverter.printHexBinary;
 
+import com.google.protobuf.ByteString;
 import com.google.type.Money;
 
 import io.grpc.stub.StreamObserver;
 import pt.tecnico.supplier.domain.Supplier;
-import pt.tecnico.supplier.grpc.Product;
-import pt.tecnico.supplier.grpc.ProductsRequest;
-import pt.tecnico.supplier.grpc.ProductsResponse;
-import pt.tecnico.supplier.grpc.SupplierGrpc;
+import pt.tecnico.supplier.grpc.*;
+
+import javax.crypto.Cipher;
+import javax.crypto.NoSuchPaddingException;
+import java.security.InvalidKeyException;
+import java.security.MessageDigest;
+import java.security.NoSuchAlgorithmException;
 
 public class SupplierServiceImpl extends SupplierGrpc.SupplierImplBase {
 
@@ -40,6 +44,7 @@ public class SupplierServiceImpl extends SupplierGrpc.SupplierImplBase {
 		productBuilder.setIdentifier(p.getId());
 		productBuilder.setDescription(p.getDescription());
 		productBuilder.setQuantity(p.getQuantity());
+		productBuilder.setAvailable(p.isAvailable());
 
 		Money.Builder moneyBuilder = Money.newBuilder();
 		moneyBuilder.setCurrencyCode("EUR").setUnits(p.getPrice());
@@ -49,7 +54,7 @@ public class SupplierServiceImpl extends SupplierGrpc.SupplierImplBase {
 	}
 
 	@Override
-	public void listProducts(ProductsRequest request, StreamObserver<ProductsResponse> responseObserver) {
+	public void listProducts(ProductsRequest request, StreamObserver<SignedResponse> responseObserver) {
 		debug("listProducts called");
 
 		debug("Received request:");
@@ -68,6 +73,40 @@ public class SupplierServiceImpl extends SupplierGrpc.SupplierImplBase {
 		}
 		ProductsResponse response = responseBuilder.build();
 
+		SignedResponse.Builder signedReponseBuilder = SignedResponse.newBuilder();
+		signedReponseBuilder.setResponse(response);
+
+		Signature.Builder signatureBuilder = Signature.newBuilder();
+
+		byte[] digest = new byte[0];
+		try {
+			MessageDigest messageDigest = MessageDigest.getInstance("SHA-256");
+			digest = messageDigest.digest(response.toByteArray());
+		} catch (NoSuchAlgorithmException e) {
+			e.printStackTrace();
+		}
+		debug("Bytes before cipher " + printHexBinary(digest));
+		byte[] cipherBytes;
+		Cipher cipher;
+		try {
+			cipher = Cipher.getInstance("AES/ECB/PKCS5Padding");
+			cipher.init(Cipher.ENCRYPT_MODE, SupplierServer.readKey("secret.key"));
+			cipherBytes = cipher.doFinal(digest);
+			debug("Bytes after cipher " + printHexBinary(cipherBytes));
+			signatureBuilder.setSignerId(supplier.getId()).setValue(ByteString.copyFrom(cipherBytes));
+		} catch (NoSuchAlgorithmException | NoSuchPaddingException e) {
+			System.err.println("Failed getting cipher instance");
+			e.printStackTrace();
+		} catch (InvalidKeyException e) {
+			System.err.println("Invalid key");
+			e.printStackTrace();
+		} catch (Exception e) {
+			e.printStackTrace();
+		}
+
+		signedReponseBuilder.setSignature(signatureBuilder.build());
+		SignedResponse signedResponse = signedReponseBuilder.build();
+
 		debug("Response to send:");
 		debug(response.toString());
 		debug("in binary hexadecimals:");
@@ -76,7 +115,7 @@ public class SupplierServiceImpl extends SupplierGrpc.SupplierImplBase {
 		debug(String.format("%d bytes%n", responseBinary.length));
 
 		// send single response back
-		responseObserver.onNext(response);
+		responseObserver.onNext(signedResponse);
 		// complete call
 		responseObserver.onCompleted();
 	}

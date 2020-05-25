@@ -4,6 +4,12 @@ import io.grpc.BindableService;
 import io.grpc.Server;
 import io.grpc.ServerBuilder;
 
+import javax.crypto.spec.SecretKeySpec;
+import java.io.InputStream;
+import java.security.Key;
+
+import static javax.xml.bind.DatatypeConverter.printHexBinary;
+
 public class SupplierServer {
 
 	public static void main(String[] args) throws Exception {
@@ -43,4 +49,18 @@ public class SupplierServer {
 		}
 	}
 
+	public static Key readKey(String resourcePath) throws Exception {
+		System.out.println("Reading key from resource " + resourcePath + " ...");
+
+		InputStream fis = Thread.currentThread().getContextClassLoader().getResourceAsStream(resourcePath);
+		byte[] encoded = new byte[fis.available()];
+		fis.read(encoded);
+		fis.close();
+
+		System.out.println("Key:");
+		System.out.println(printHexBinary(encoded));
+		SecretKeySpec keySpec = new SecretKeySpec(encoded, "AES");
+
+		return keySpec;
+	}
 }

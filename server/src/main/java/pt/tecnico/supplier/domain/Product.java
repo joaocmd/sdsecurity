@@ -14,12 +14,23 @@ public class Product {
 	/** Price of product */
 	private int price;
 
+	public boolean isAvailable() {
+		return available;
+	}
+
+	public void setAvailable(boolean available) {
+		this.available = available;
+	}
+
+	private boolean available;
+
 	/** Create a new product */
-	public Product(String pid, String description, int quantity, int price) {
+	public Product(String pid, String description, int quantity, int price, boolean available) {
 		this.productId = pid;
 		this.description = description;
 		this.quantity = quantity;
 		this.price = price;
+		this.available = available;
 	}
 
 	public String getId() {

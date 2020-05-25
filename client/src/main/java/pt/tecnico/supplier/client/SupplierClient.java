@@ -1,12 +1,19 @@
 package pt.tecnico.supplier.client;
 
-import static javax.xml.bind.DatatypeConverter.printHexBinary;
-
 import io.grpc.ManagedChannel;
 import io.grpc.ManagedChannelBuilder;
 import pt.tecnico.supplier.grpc.ProductsRequest;
-import pt.tecnico.supplier.grpc.ProductsResponse;
+import pt.tecnico.supplier.grpc.SignedResponse;
 import pt.tecnico.supplier.grpc.SupplierGrpc;
+
+import javax.crypto.Cipher;
+import javax.crypto.spec.SecretKeySpec;
+import java.io.InputStream;
+import java.security.Key;
+import java.security.MessageDigest;
+import java.util.Arrays;
+
+import static javax.xml.bind.DatatypeConverter.printHexBinary;
 
 public class SupplierClient {
 
@@ -59,7 +66,21 @@ public class SupplierClient {
 
 		// Make the call using the stub.
 		System.out.println("Remote call...");
-		ProductsResponse response = stub.listProducts(request);
+		SignedResponse response = stub.listProducts(request);
+
+		Cipher cipher = Cipher.getInstance("AES/ECB/PKCS5Padding");
+		cipher.init(Cipher.DECRYPT_MODE, readKey("secret.key"));
+		MessageDigest messageDigest = MessageDigest.getInstance("SHA-256");
+		byte[] digest = messageDigest.digest(response.getResponse().toByteArray());
+		System.out.println("Calculated message digest: " + printHexBinary(digest));
+		byte[] decipheredDigest = cipher.doFinal(response.getSignature().getValue().toByteArray());
+		System.out.println("Deciphered message digest: " + printHexBinary(decipheredDigest));
+
+		if (Arrays.equals(digest, decipheredDigest)) {
+			System.out.println("Signature is valid! Message accepted! :)");
+		} else {
+			System.out.println("Signature is invalid! Message rejected! :(");
+		}
 
 		// Print response.
 		System.out.println("Received response:");
@@ -71,6 +92,22 @@ public class SupplierClient {
 
 		// A Channel should be shutdown before stopping the process.
 		channel.shutdownNow();
+	}
+
+
+	public static Key readKey(String resourcePath) throws Exception {
+		System.out.println("Reading key from resource " + resourcePath + " ...");
+
+		InputStream fis = Thread.currentThread().getContextClassLoader().getResourceAsStream(resourcePath);
+		byte[] encoded = new byte[fis.available()];
+		fis.read(encoded);
+		fis.close();
+
+		System.out.println("Key:");
+		System.out.println(printHexBinary(encoded));
+		SecretKeySpec keySpec = new SecretKeySpec(encoded, "AES");
+
+		return keySpec;
 	}
 
 }
